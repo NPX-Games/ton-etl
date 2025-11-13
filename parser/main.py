@@ -33,9 +33,13 @@ if __name__ == "__main__":
             max_poll_records=int(os.environ.get("KAFKA_MAX_POLL_RECORDS", '50')),
             max_poll_interval_ms=int(os.environ.get("KAFKA_MAX_POLL_INTERVAL_MS", '300000')),
             )
-    for topic in topics.split(","):
-        logger.info(f"Subscribing to {topic}")
-        consumer.subscribe(topic)
+    # ИСПРАВЛЕНИЕ: подписываемся один раз на все топики списком
+    topic_list = [t.strip() for t in topics.split(",")]
+    logger.info(f"Subscribing to {topic_list}")
+    consumer.subscribe(topic_list)
+    # for topic in topics.split(","):
+        # logger.info(f"Subscribing to {topic}")
+        # consumer.subscribe(topic)
     # TODO add prometheus metrics here
 
     last = time.time()
