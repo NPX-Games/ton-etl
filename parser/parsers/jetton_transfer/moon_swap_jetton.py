@@ -87,7 +87,11 @@ class MoonSwapJetton(MoonSwapTON):
 
                 swap_src_token = self.TON
 
-            swap_dst_amount = decode_decimal(obj.get('amount', 0))
+            amount_obj = obj.get('amount')
+            if amount_obj is None or not isinstance(amount_obj, dict):
+                logger.warning(f"Skipping Moon.cx swap with invalid amount: {obj.get('tx_hash')}")
+                return
+            swap_dst_amount = decode_decimal(amount_obj)
             if swap_src_amount == 0 or swap_dst_amount == 0:
                 logger.warning(f"Skipping zero amount swap for Moon.cx DEX {obj}")
                 return

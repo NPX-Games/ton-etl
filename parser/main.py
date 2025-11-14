@@ -25,18 +25,70 @@ if __name__ == "__main__":
     db = DB(Parser.USE_MESSAGE_CONTENT, dex_pool_history=save_dex_pool_history, run_migrations=os.environ.get("RUN_MIGRATIONS", "0") == "1")
     db.acquire()
 
-    consumer = KafkaConsumer(
-            group_id=group_id,
-            bootstrap_servers=os.environ.get("KAFKA_BROKER"),
-            auto_offset_reset=os.environ.get("KAFKA_OFFSET_RESET", 'earliest'),
-            enable_auto_commit=False,
-            max_poll_records=int(os.environ.get("KAFKA_MAX_POLL_RECORDS", '50')),
-            max_poll_interval_ms=int(os.environ.get("KAFKA_MAX_POLL_INTERVAL_MS", '300000')),
-            )
+    kafka_broker = os.environ.get("KAFKA_BROKER")
+    logger.info(f"Connecting to Kafka broker: {kafka_broker}, group_id: {group_id}")
+
+    # Retry logic for Kafka consumer creation
+    max_retries = 5
+    retry_delay = 10
+    consumer = None
+
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Creating Kafka consumer, attempt {attempt + 1}/{max_retries}")
+            consumer = KafkaConsumer(
+                    group_id=group_id,
+                    bootstrap_servers=kafka_broker,
+                    auto_offset_reset=os.environ.get("KAFKA_OFFSET_RESET", 'earliest'),
+                    enable_auto_commit=False,
+                    max_poll_records=int(os.environ.get("KAFKA_MAX_POLL_RECORDS", '50')),
+                    max_poll_interval_ms=int(os.environ.get("KAFKA_MAX_POLL_INTERVAL_MS", '300000')),
+                    session_timeout_ms=60000,
+                    heartbeat_interval_ms=20000,
+                    request_timeout_ms=70000,
+                    api_version_auto_timeout_ms=30000,
+                    reconnect_backoff_ms=50,
+                    reconnect_backoff_max_ms=1000,
+                    )
+            logger.info(f"Kafka consumer created successfully on attempt {attempt + 1}")
+            break
+        except KafkaError as e:
+            logger.warning(f"Kafka consumer creation attempt {attempt + 1}/{max_retries} failed: {e}")
+            if consumer:
+                try:
+                    consumer.close()
+                except:
+                    pass
+            if attempt == max_retries - 1:
+                logger.error(f"Failed to create Kafka consumer after {max_retries} attempts")
+                raise
+            logger.info(f"Retrying in {retry_delay} seconds...")
+            time.sleep(retry_delay)
+        except Exception as e:
+            logger.error(f"Unexpected error creating Kafka consumer: {e}")
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(retry_delay)
     # ИСПРАВЛЕНИЕ: подписываемся один раз на все топики списком
     topic_list = [t.strip() for t in topics.split(",")]
     logger.info(f"Subscribing to {topic_list}")
-    consumer.subscribe(topic_list)
+    # Retry logic for subscription
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Subscribing to topics, attempt {attempt + 1}/{max_retries}")
+            consumer.subscribe(topic_list)
+            logger.info(f"Successfully subscribed to topics")
+            # Wait a bit to ensure subscription is registered
+            time.sleep(2)
+            break
+        except Exception as e:
+            logger.warning(f"Subscribe attempt {attempt + 1}/{max_retries} failed: {e}")
+            if attempt == max_retries - 1:
+                logger.error(f"Failed to subscribe after {max_retries} attempts")
+                raise
+            logger.info(f"Retrying in {retry_delay} seconds...")
+            time.sleep(retry_delay)
+    # consumer.subscribe(topic_list)
     # for topic in topics.split(","):
         # logger.info(f"Subscribing to {topic}")
         # consumer.subscribe(topic)
@@ -58,7 +110,7 @@ if __name__ == "__main__":
     elif os.environ.get("PROCESS_JETTONS_ONE_TRACE_ID"):
         generator = db.get_jetton_transfers_for_processing(os.environ.get("PROCESS_JETTONS_ONE_TRACE_ID"))
 
-        
+    logger.info("Starting message processing loop")    
     # for msg in consumer:
     for msg in generator:
         try:
