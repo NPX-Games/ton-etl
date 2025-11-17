@@ -8,8 +8,10 @@ import json
 from loguru import logger
 from pytvm.tvm_emulator.tvm_emulator import TvmEmulator
 from pytvm.engine import EmulatorEngineC
-from pytoniq_core import Cell, Address, begin_cell, HashMap, Builder
+from pytoniq_core import Cell, Address, begin_cell, HashMap, Builder, Slice
+from pytoniq_core.tlb import VmStack
 from pytoniq import LiteClient
+from pytvm.utils import get_method_id
 
 
 def create_lite_client():
@@ -131,8 +133,24 @@ class EmulatorParser(Parser):
 
         return emulator
     
+    def _run_get_method(self, emulator, method, stack):
+        try:
+            return emulator.run_get_method(method=method, stack=stack)
+        except KeyError as exc:
+            logger.warning(f"Emulator result is missing field {exc} for method {method}, falling back to raw call")
+            method_id = method if isinstance(method, int) else get_method_id(method)
+            raw_stack = VmStack.serialize(stack)
+            result = emulator.raw_run_get_method(method_id, raw_stack)
+            if result.get('stack'):
+                result['stack'] = VmStack.deserialize(Slice.one_from_boc(result['stack']))
+            else:
+                result['stack'] = []
+            if 'gas_used' in result:
+                result['gas_used'] = int(result['gas_used'])
+            return result
+
     def _execute_method(self, emulator, method, stack, db: DB, obj):
-        result = emulator.run_get_method(method=method, stack=stack)
+        result = self._run_get_method(emulator, method, stack)
         if not result['success']:
             raise EmulatorException(f"Method {method} execution failed: {result}", result)
         if result['vm_exit_code'] == 9 and 'missing_library' in result and result['missing_library'] is not None:
