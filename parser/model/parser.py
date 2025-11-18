@@ -126,7 +126,13 @@ class Parser:
         logger.info(f"Fetching account state from toncenter RPC for {address}")
         
         toncenter_base_url = "https://testnet.toncenter.com" if Parser.TESTNET_MODE else "https://toncenter.com"
-        res = requests.get(f"{toncenter_base_url}/api/v3/accountStates?address={address.to_str(is_user_friendly=False)}")
+        api_key = os.environ.get("TONCENTER_API_KEY")
+        headers = {"X-API-Key": api_key} if api_key else {}
+        res = requests.get(
+            f"{toncenter_base_url}/api/v3/accountStates?address={address.to_str(is_user_friendly=False)}",
+            headers=headers
+        )
+        # res = requests.get(f"{toncenter_base_url}/api/v3/accountStates?address={address.to_str(is_user_friendly=False)}")
         if res.status_code != 200:
             raise Exception(f"Failed to fetch account state from toncenter RPC for {address}")
         
